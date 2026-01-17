@@ -1,0 +1,138 @@
+{
+  "rules": [
+    {
+      "id": "ENCRYPT-001",
+      "name": "KMS Key Scheduled for Deletion",
+      "description": "Detects when a KMS customer managed key is scheduled for deletion. Key deletion is irreversible after the waiting period and will render all data encrypted with this key permanently inaccessible. This could indicate ransomware, sabotage, or an attacker destroying evidence.",
+      "severity": "Critical",
+      "mitre_attack": {
+        "tactic": "Impact",
+        "technique_id": "T1485",
+        "technique_name": "Data Destruction"
+      },
+      "detection": {
+        "eventSource": "kms.amazonaws.com",
+        "eventName": ["ScheduleKeyDeletion"],
+        "conditions": []
+      },
+      "cloudwatch_filter_pattern": "{ ($.eventSource = \"kms.amazonaws.com\") && ($.eventName = \"ScheduleKeyDeletion\") }",
+      "eventbridge_pattern": {
+        "source": ["aws.cloudtrail"],
+        "detail-type": ["AWS API Call via CloudTrail"],
+        "detail": {
+          "eventSource": ["kms.amazonaws.com"],
+          "eventName": ["ScheduleKeyDeletion"]
+        }
+      },
+      "false_positives": [
+        "Planned key rotation where old key is scheduled for deletion",
+        "Decommissioning of applications and their associated keys",
+        "Cleanup of unused keys after data migration"
+      ],
+      "tuning_guidance": "All KMS key deletion should trigger alerts. Correlate with change management and require documented approval before considering false positive.",
+      "response": [
+        "1. Immediately cancel the key deletion using CancelKeyDeletion",
+        "2. Identify all resources encrypted with this key",
+        "3. If unauthorized: Investigate the actor for signs of compromise",
+        "4. Check for other destructive actions by the same actor",
+        "5. Review if this is part of a ransomware or sabotage attack",
+        "6. Consider implementing SCP to restrict KMS deletion permissions"
+      ],
+      "compliance": {
+        "pci_dss": ["3.5", "3.6"],
+        "soc2": ["CC6.1"],
+        "hipaa": ["164.312(a)(2)(iv)"],
+        "cis_aws": ["2.8"]
+      }
+    },
+    {
+      "id": "ENCRYPT-002",
+      "name": "KMS Key Disabled",
+      "description": "Detects when a KMS key is disabled. Disabling a key prevents any cryptographic operations using that key, which can cause application outages and may indicate preparation for ransom demands or sabotage.",
+      "severity": "High",
+      "mitre_attack": {
+        "tactic": "Impact",
+        "technique_id": "T1486",
+        "technique_name": "Data Encrypted for Impact"
+      },
+      "detection": {
+        "eventSource": "kms.amazonaws.com",
+        "eventName": ["DisableKey"],
+        "conditions": []
+      },
+      "cloudwatch_filter_pattern": "{ ($.eventSource = \"kms.amazonaws.com\") && ($.eventName = \"DisableKey\") }",
+      "eventbridge_pattern": {
+        "source": ["aws.cloudtrail"],
+        "detail-type": ["AWS API Call via CloudTrail"],
+        "detail": {
+          "eventSource": ["kms.amazonaws.com"],
+          "eventName": ["DisableKey"]
+        }
+      },
+      "false_positives": [
+        "Key rotation procedures (disable old key after new key is active)",
+        "Incident response disabling compromised keys",
+        "Administrative key management"
+      ],
+      "tuning_guidance": "Alert on all key disable operations. Differentiate severity based on whether applications are actively using the key.",
+      "response": [
+        "1. Re-enable the key if this was unauthorized: EnableKey",
+        "2. Check for application failures related to this key",
+        "3. Identify what data and services depend on this key",
+        "4. If unauthorized: Investigate the actor immediately",
+        "5. Look for patterns suggesting ransomware (multiple keys disabled)",
+        "6. Review key policy to restrict disable permissions"
+      ],
+      "compliance": {
+        "pci_dss": ["3.5", "3.6"],
+        "soc2": ["CC6.1"],
+        "hipaa": ["164.312(a)(2)(iv)"],
+        "cis_aws": ["2.8"]
+      }
+    },
+    {
+      "id": "ENCRYPT-003",
+      "name": "S3 Bucket Encryption Configuration Removed",
+      "description": "Detects when default encryption is removed from an S3 bucket. This allows unencrypted objects to be uploaded, potentially exposing sensitive data if the bucket is accessed inappropriately.",
+      "severity": "High",
+      "mitre_attack": {
+        "tactic": "Defense Evasion",
+        "technique_id": "T1562",
+        "technique_name": "Impair Defenses"
+      },
+      "detection": {
+        "eventSource": "s3.amazonaws.com",
+        "eventName": ["DeleteBucketEncryption"],
+        "conditions": []
+      },
+      "cloudwatch_filter_pattern": "{ ($.eventSource = \"s3.amazonaws.com\") && ($.eventName = \"DeleteBucketEncryption\") }",
+      "eventbridge_pattern": {
+        "source": ["aws.cloudtrail"],
+        "detail-type": ["AWS API Call via CloudTrail"],
+        "detail": {
+          "eventSource": ["s3.amazonaws.com"],
+          "eventName": ["DeleteBucketEncryption"]
+        }
+      },
+      "false_positives": [
+        "Changing encryption from SSE-S3 to SSE-KMS (delete then reconfigure)",
+        "Terraform state management issues causing recreation"
+      ],
+      "tuning_guidance": "Correlate with PutBucketEncryption events. Alert if DeleteBucketEncryption is not followed by PutBucketEncryption within a short window.",
+      "response": [
+        "1. Immediately re-enable bucket encryption",
+        "2. Identify if any unencrypted objects were uploaded during the window",
+        "3. Review bucket contents for sensitive data",
+        "4. Check if this bucket has compliance requirements for encryption",
+        "5. Investigate why encryption was removed",
+        "6. Consider implementing SCP to prevent encryption removal"
+      ],
+      "compliance": {
+        "pci_dss": ["3.4"],
+        "soc2": ["CC6.1"],
+        "hipaa": ["164.312(a)(2)(iv)", "164.312(e)(2)(ii)"],
+        "cis_aws": ["2.1.1"]
+      }
+    }
+  ]
+}

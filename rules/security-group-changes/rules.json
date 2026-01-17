@@ -1,0 +1,155 @@
+{
+  "rules": [
+    {
+      "id": "SG-001",
+      "name": "Security Group Opened to Internet on Sensitive Ports",
+      "description": "Detects when a security group is modified to allow inbound access from 0.0.0.0/0 (the entire internet) on sensitive ports such as SSH (22), RDP (3389), or database ports. This is a critical misconfiguration that directly exposes resources to attack.",
+      "severity": "Critical",
+      "mitre_attack": {
+        "tactic": "Defense Evasion",
+        "technique_id": "T1562.007",
+        "technique_name": "Impair Defenses: Disable or Modify Cloud Firewall"
+      },
+      "detection": {
+        "eventSource": "ec2.amazonaws.com",
+        "eventName": ["AuthorizeSecurityGroupIngress"],
+        "conditions": [
+          "requestParameters.ipPermissions.ipRanges contains '0.0.0.0/0'",
+          "AND requestParameters.ipPermissions.fromPort in [22, 3389, 3306, 5432, 1433, 27017, 6379, 9200, 5601]"
+        ]
+      },
+      "cloudwatch_filter_pattern": "{ ($.eventSource = \"ec2.amazonaws.com\") && ($.eventName = \"AuthorizeSecurityGroupIngress\") }",
+      "eventbridge_pattern": {
+        "source": ["aws.cloudtrail"],
+        "detail-type": ["AWS API Call via CloudTrail"],
+        "detail": {
+          "eventSource": ["ec2.amazonaws.com"],
+          "eventName": ["AuthorizeSecurityGroupIngress"]
+        }
+      },
+      "sensitive_ports": {
+        "22": "SSH - Remote shell access",
+        "3389": "RDP - Windows remote desktop",
+        "3306": "MySQL database",
+        "5432": "PostgreSQL database",
+        "1433": "Microsoft SQL Server",
+        "27017": "MongoDB",
+        "6379": "Redis",
+        "9200": "Elasticsearch",
+        "5601": "Kibana"
+      },
+      "false_positives": [
+        "Intentional bastion host configuration (should use restricted IP ranges instead)",
+        "Development/test environments (should still be restricted)",
+        "Temporary troubleshooting (should be time-limited and reverted)"
+      ],
+      "tuning_guidance": "This rule should alert on any 0.0.0.0/0 access to sensitive ports regardless of environment. Consider SCP to prevent this configuration entirely.",
+      "response": [
+        "1. Immediately remove the 0.0.0.0/0 ingress rule",
+        "2. Identify all resources using this security group",
+        "3. Check for signs of compromise on exposed resources",
+        "4. Review CloudTrail for unauthorized access during exposure window",
+        "5. Replace with specific IP ranges or security group references",
+        "6. Consider implementing AWS Firewall Manager for centralized control"
+      ],
+      "compliance": {
+        "pci_dss": ["1.2", "1.3"],
+        "soc2": ["CC6.6"],
+        "hipaa": ["164.312(e)(1)"],
+        "cis_aws": ["5.1", "5.2"]
+      }
+    },
+    {
+      "id": "SG-002",
+      "name": "Security Group Allows All Inbound Traffic",
+      "description": "Detects when a security group is modified to allow all inbound traffic from the internet (0.0.0.0/0 on all ports, all protocols). This effectively disables the security group as a control.",
+      "severity": "Critical",
+      "mitre_attack": {
+        "tactic": "Defense Evasion",
+        "technique_id": "T1562.007",
+        "technique_name": "Impair Defenses: Disable or Modify Cloud Firewall"
+      },
+      "detection": {
+        "eventSource": "ec2.amazonaws.com",
+        "eventName": ["AuthorizeSecurityGroupIngress"],
+        "conditions": [
+          "requestParameters.ipPermissions.ipProtocol equals '-1' (all protocols)",
+          "AND requestParameters.ipPermissions.ipRanges contains '0.0.0.0/0'"
+        ]
+      },
+      "cloudwatch_filter_pattern": "{ ($.eventSource = \"ec2.amazonaws.com\") && ($.eventName = \"AuthorizeSecurityGroupIngress\") }",
+      "eventbridge_pattern": {
+        "source": ["aws.cloudtrail"],
+        "detail-type": ["AWS API Call via CloudTrail"],
+        "detail": {
+          "eventSource": ["ec2.amazonaws.com"],
+          "eventName": ["AuthorizeSecurityGroupIngress"]
+        }
+      },
+      "false_positives": [
+        "This configuration should never be intentional in production",
+        "May occur in sandbox environments but should still be flagged"
+      ],
+      "tuning_guidance": "No false positive tuning recommended. This rule indicates a serious misconfiguration or malicious activity in all cases.",
+      "response": [
+        "1. Immediately remove the all-traffic rule",
+        "2. This is likely either severe misconfiguration or active attack",
+        "3. Treat exposed resources as potentially compromised",
+        "4. Review all activity on resources using this security group",
+        "5. Consider isolating affected resources pending investigation",
+        "6. Implement SCP to prevent this configuration"
+      ],
+      "compliance": {
+        "pci_dss": ["1.2", "1.3"],
+        "soc2": ["CC6.6"],
+        "hipaa": ["164.312(e)(1)"],
+        "cis_aws": ["5.1"]
+      }
+    },
+    {
+      "id": "SG-003",
+      "name": "Security Group Deleted",
+      "description": "Detects when a security group is deleted. While often legitimate, security group deletion could indicate an attacker removing security controls or covering tracks after modifying network access.",
+      "severity": "Medium",
+      "mitre_attack": {
+        "tactic": "Defense Evasion",
+        "technique_id": "T1562.007",
+        "technique_name": "Impair Defenses: Disable or Modify Cloud Firewall"
+      },
+      "detection": {
+        "eventSource": "ec2.amazonaws.com",
+        "eventName": ["DeleteSecurityGroup"],
+        "conditions": []
+      },
+      "cloudwatch_filter_pattern": "{ ($.eventSource = \"ec2.amazonaws.com\") && ($.eventName = \"DeleteSecurityGroup\") }",
+      "eventbridge_pattern": {
+        "source": ["aws.cloudtrail"],
+        "detail-type": ["AWS API Call via CloudTrail"],
+        "detail": {
+          "eventSource": ["ec2.amazonaws.com"],
+          "eventName": ["DeleteSecurityGroup"]
+        }
+      },
+      "false_positives": [
+        "Terraform destroy operations",
+        "Cleanup of unused security groups",
+        "Resource decommissioning"
+      ],
+      "tuning_guidance": "Correlate with change management records. Consider higher severity if deletion occurs outside change windows or by unexpected users.",
+      "response": [
+        "1. Identify the deleted security group and its previous rules",
+        "2. Verify this was an approved change",
+        "3. If unexpected: Check what resources were using this security group",
+        "4. Review if the deletion occurred after suspicious modifications",
+        "5. Check for other security-related deletions by the same actor",
+        "6. Consider implementing deletion protection for critical security groups"
+      ],
+      "compliance": {
+        "pci_dss": ["1.1.1"],
+        "soc2": ["CC6.6", "CC8.1"],
+        "hipaa": ["164.312(e)(1)"],
+        "cis_aws": ["5.4"]
+      }
+    }
+  ]
+}

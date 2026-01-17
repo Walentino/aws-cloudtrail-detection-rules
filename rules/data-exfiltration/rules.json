@@ -1,0 +1,243 @@
+{
+  "rules": [
+    {
+      "id": "EXFIL-001",
+      "name": "S3 Bucket Policy Allows Public Access",
+      "description": "Detects when an S3 bucket policy is modified to allow public access (Principal: *). This could indicate data exfiltration staging, accidental misconfiguration, or an attacker creating a public data dump.",
+      "severity": "Critical",
+      "mitre_attack": {
+        "tactic": "Exfiltration",
+        "technique_id": "T1537",
+        "technique_name": "Transfer Data to Cloud Account"
+      },
+      "detection": {
+        "eventSource": "s3.amazonaws.com",
+        "eventName": ["PutBucketPolicy"],
+        "conditions": [
+          "requestParameters.policy contains '\"Principal\":\"*\"' or '\"Principal\": \"*\"'",
+          "OR requestParameters.policy contains '\"Principal\":{\"AWS\":\"*\"}'"
+        ]
+      },
+      "cloudwatch_filter_pattern": "{ ($.eventSource = \"s3.amazonaws.com\") && ($.eventName = \"PutBucketPolicy\") }",
+      "eventbridge_pattern": {
+        "source": ["aws.cloudtrail"],
+        "detail-type": ["AWS API Call via CloudTrail"],
+        "detail": {
+          "eventSource": ["s3.amazonaws.com"],
+          "eventName": ["PutBucketPolicy"]
+        }
+      },
+      "false_positives": [
+        "Static website hosting buckets intended to be public",
+        "Public dataset distribution",
+        "CDN origin buckets with CloudFront OAI/OAC"
+      ],
+      "tuning_guidance": "Maintain a whitelist of buckets approved for public access. Alert on any PutBucketPolicy not in the whitelist. For CloudFront origins, the Principal should be CloudFront service principal, not *.",
+      "response": [
+        "1. Immediately identify the bucket and review its contents",
+        "2. If the bucket contains sensitive data: Remove the public policy immediately",
+        "3. Enable S3 Block Public Access at account level if not already enabled",
+        "4. Review S3 access logs to see if data was accessed before remediation",
+        "5. Investigate who made the change and why",
+        "6. Consider enabling S3 Object Lock for sensitive buckets"
+      ],
+      "compliance": {
+        "pci_dss": ["3.4", "7.1"],
+        "soc2": ["CC6.1"],
+        "hipaa": ["164.312(e)(1)"],
+        "cis_aws": ["2.1.5"]
+      }
+    },
+    {
+      "id": "EXFIL-002",
+      "name": "S3 Bucket ACL Grants Public Access",
+      "description": "Detects when an S3 bucket ACL is modified to grant public access via AllUsers or AuthenticatedUsers groups. ACL-based public access is a legacy method but still commonly misconfigured.",
+      "severity": "Critical",
+      "mitre_attack": {
+        "tactic": "Exfiltration",
+        "technique_id": "T1537",
+        "technique_name": "Transfer Data to Cloud Account"
+      },
+      "detection": {
+        "eventSource": "s3.amazonaws.com",
+        "eventName": ["PutBucketAcl"],
+        "conditions": [
+          "requestParameters contains 'AllUsers'",
+          "OR requestParameters contains 'AuthenticatedUsers'"
+        ]
+      },
+      "cloudwatch_filter_pattern": "{ ($.eventSource = \"s3.amazonaws.com\") && ($.eventName = \"PutBucketAcl\") }",
+      "eventbridge_pattern": {
+        "source": ["aws.cloudtrail"],
+        "detail-type": ["AWS API Call via CloudTrail"],
+        "detail": {
+          "eventSource": ["s3.amazonaws.com"],
+          "eventName": ["PutBucketAcl"]
+        }
+      },
+      "false_positives": [
+        "Legacy applications still using ACLs",
+        "Migration from other cloud providers"
+      ],
+      "tuning_guidance": "Modern S3 security should not use ACLs. Consider blocking all ACL modifications via SCP and using bucket policies exclusively.",
+      "response": [
+        "1. Immediately reset the bucket ACL to private",
+        "2. Review bucket contents for sensitive data exposure",
+        "3. Check S3 access logs for unauthorized access during exposure window",
+        "4. Migrate to bucket policy-based access control if using ACLs",
+        "5. Enable S3 Block Public Access settings",
+        "6. Investigate the actor and determine if this was intentional"
+      ],
+      "compliance": {
+        "pci_dss": ["3.4", "7.1"],
+        "soc2": ["CC6.1"],
+        "hipaa": ["164.312(e)(1)"],
+        "cis_aws": ["2.1.5"]
+      }
+    },
+    {
+      "id": "EXFIL-003",
+      "name": "EBS Snapshot Shared Externally",
+      "description": "Detects when an EBS snapshot is shared with external AWS accounts or made public. EBS snapshots can contain sensitive data, credentials, and application code that attackers can extract.",
+      "severity": "Critical",
+      "mitre_attack": {
+        "tactic": "Exfiltration",
+        "technique_id": "T1537",
+        "technique_name": "Transfer Data to Cloud Account"
+      },
+      "detection": {
+        "eventSource": "ec2.amazonaws.com",
+        "eventName": ["ModifySnapshotAttribute"],
+        "conditions": [
+          "requestParameters.createVolumePermission.add contains 'all' (public)",
+          "OR requestParameters.createVolumePermission.add.userId is external account ID"
+        ]
+      },
+      "cloudwatch_filter_pattern": "{ ($.eventSource = \"ec2.amazonaws.com\") && ($.eventName = \"ModifySnapshotAttribute\") }",
+      "eventbridge_pattern": {
+        "source": ["aws.cloudtrail"],
+        "detail-type": ["AWS API Call via CloudTrail"],
+        "detail": {
+          "eventSource": ["ec2.amazonaws.com"],
+          "eventName": ["ModifySnapshotAttribute"]
+        }
+      },
+      "false_positives": [
+        "Sharing snapshots with approved partner accounts",
+        "Cross-account disaster recovery",
+        "AMI building pipelines that share with other internal accounts"
+      ],
+      "tuning_guidance": "Maintain a whitelist of approved AWS account IDs. Alert on sharing with any account not in the whitelist. Always alert on public (all) sharing.",
+      "response": [
+        "1. Immediately remove external sharing permissions from the snapshot",
+        "2. Identify the volume and instance the snapshot originated from",
+        "3. If shared publicly: Assume data is compromised and begin incident response",
+        "4. Check if the external account ID belongs to your organization",
+        "5. Review CloudTrail for the external account's activity on the snapshot",
+        "6. Consider using AWS RAM for controlled cross-account sharing"
+      ],
+      "compliance": {
+        "pci_dss": ["3.4", "7.1"],
+        "soc2": ["CC6.1"],
+        "hipaa": ["164.312(e)(1)"],
+        "cis_aws": ["2.2.1"]
+      }
+    },
+    {
+      "id": "EXFIL-004",
+      "name": "AMI Shared Publicly or Externally",
+      "description": "Detects when an Amazon Machine Image (AMI) is shared publicly or with external accounts. AMIs can contain sensitive configurations, embedded credentials, and proprietary application code.",
+      "severity": "High",
+      "mitre_attack": {
+        "tactic": "Exfiltration",
+        "technique_id": "T1537",
+        "technique_name": "Transfer Data to Cloud Account"
+      },
+      "detection": {
+        "eventSource": "ec2.amazonaws.com",
+        "eventName": ["ModifyImageAttribute"],
+        "conditions": [
+          "requestParameters.launchPermission.add contains 'all' (public)",
+          "OR requestParameters.launchPermission.add.userId is external account ID"
+        ]
+      },
+      "cloudwatch_filter_pattern": "{ ($.eventSource = \"ec2.amazonaws.com\") && ($.eventName = \"ModifyImageAttribute\") }",
+      "eventbridge_pattern": {
+        "source": ["aws.cloudtrail"],
+        "detail-type": ["AWS API Call via CloudTrail"],
+        "detail": {
+          "eventSource": ["ec2.amazonaws.com"],
+          "eventName": ["ModifyImageAttribute"]
+        }
+      },
+      "false_positives": [
+        "Intentionally public AMIs (open source projects)",
+        "Sharing with AWS Marketplace",
+        "Cross-account deployment pipelines"
+      ],
+      "tuning_guidance": "Block public AMI sharing via SCP unless specifically required. Maintain whitelist of approved external accounts.",
+      "response": [
+        "1. Remove external sharing permissions from the AMI",
+        "2. Identify what software and data are included in the AMI",
+        "3. If shared publicly: Scan for hardcoded credentials or secrets",
+        "4. Rotate any credentials that may have been embedded in the AMI",
+        "5. Review instances launched from this AMI for compromise indicators",
+        "6. Consider rebuilding the AMI with secrets externalized"
+      ],
+      "compliance": {
+        "pci_dss": ["3.4"],
+        "soc2": ["CC6.1"],
+        "hipaa": ["164.312(e)(1)"],
+        "cis_aws": ["2.2.1"]
+      }
+    },
+    {
+      "id": "EXFIL-005",
+      "name": "RDS Snapshot Shared Publicly or Externally",
+      "description": "Detects when an RDS database snapshot is shared publicly or with external accounts. Database snapshots contain complete database contents including potentially sensitive customer data.",
+      "severity": "Critical",
+      "mitre_attack": {
+        "tactic": "Exfiltration",
+        "technique_id": "T1537",
+        "technique_name": "Transfer Data to Cloud Account"
+      },
+      "detection": {
+        "eventSource": "rds.amazonaws.com",
+        "eventName": ["ModifyDBSnapshotAttribute", "ModifyDBClusterSnapshotAttribute"],
+        "conditions": [
+          "requestParameters.valuesToAdd contains 'all' (public)",
+          "OR requestParameters.valuesToAdd contains external account ID"
+        ]
+      },
+      "cloudwatch_filter_pattern": "{ ($.eventSource = \"rds.amazonaws.com\") && (($.eventName = \"ModifyDBSnapshotAttribute\") || ($.eventName = \"ModifyDBClusterSnapshotAttribute\")) }",
+      "eventbridge_pattern": {
+        "source": ["aws.cloudtrail"],
+        "detail-type": ["AWS API Call via CloudTrail"],
+        "detail": {
+          "eventSource": ["rds.amazonaws.com"],
+          "eventName": ["ModifyDBSnapshotAttribute", "ModifyDBClusterSnapshotAttribute"]
+        }
+      },
+      "false_positives": [
+        "Sharing with approved disaster recovery accounts",
+        "Database migration to partner organizations",
+        "Cross-account database cloning for development"
+      ],
+      "tuning_guidance": "RDS snapshot sharing should be extremely rare and always approved. Consider blocking via SCP and requiring manual exception process.",
+      "response": [
+        "1. Immediately remove sharing permissions from the snapshot",
+        "2. Identify the database and data classification",
+        "3. If shared publicly: Treat as confirmed data breach",
+        "4. Notify data protection officer / privacy team",
+        "5. Check if external account restored the snapshot before remediation",
+        "6. Review database for sensitive data that may require breach notification"
+      ],
+      "compliance": {
+        "pci_dss": ["3.4", "7.1"],
+        "soc2": ["CC6.1"],
+        "hipaa": ["164.312(e)(1)"],
+        "cis_aws": ["2.3.1"]
+      }
+    }
+  ]
+}

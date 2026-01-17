@@ -1,0 +1,243 @@
+{
+  "rules": [
+    {
+      "id": "IAM-001",
+      "name": "Self-Escalation via Inline Policy",
+      "description": "Detects when a user attaches an inline policy with wildcard permissions to themselves. This is a common privilege escalation technique where an attacker with limited IAM write permissions grants themselves full administrative access.",
+      "severity": "Critical",
+      "mitre_attack": {
+        "tactic": "Privilege Escalation",
+        "technique_id": "T1098.001",
+        "technique_name": "Account Manipulation: Additional Cloud Credentials"
+      },
+      "detection": {
+        "eventSource": "iam.amazonaws.com",
+        "eventName": ["PutUserPolicy", "PutRolePolicy"],
+        "conditions": [
+          "userIdentity.userName equals requestParameters.userName (self-modification)",
+          "requestParameters.policyDocument contains 'Action': '*' or 'Action': 'iam:*'"
+        ]
+      },
+      "cloudwatch_filter_pattern": "{ ($.eventSource = \"iam.amazonaws.com\") && (($.eventName = \"PutUserPolicy\") || ($.eventName = \"PutRolePolicy\")) }",
+      "eventbridge_pattern": {
+        "source": ["aws.cloudtrail"],
+        "detail-type": ["AWS API Call via CloudTrail"],
+        "detail": {
+          "eventSource": ["iam.amazonaws.com"],
+          "eventName": ["PutUserPolicy", "PutRolePolicy"]
+        }
+      },
+      "false_positives": [
+        "Terraform or CloudFormation automation creating IAM resources",
+        "Authorized administrators updating policies during approved changes",
+        "CI/CD pipelines with legitimate IAM management permissions"
+      ],
+      "tuning_guidance": "Exclude known automation roles: && ($.userIdentity.userName != \"terraform-runner\") && ($.userIdentity.userName != \"cloudformation-service-role\")",
+      "response": [
+        "1. Identify the actor (userIdentity.userName) and source IP (sourceIPAddress)",
+        "2. Review the policy document in requestParameters for unauthorized permissions",
+        "3. Check if this was a planned change by contacting the user/team",
+        "4. If unauthorized: Remove the inline policy immediately using DeleteUserPolicy",
+        "5. Investigate how the user obtained iam:PutUserPolicy permission",
+        "6. Review CloudTrail for other actions by this user in the same timeframe"
+      ],
+      "compliance": {
+        "pci_dss": ["7.1", "7.2"],
+        "soc2": ["CC6.1"],
+        "hipaa": ["164.312(a)(1)"],
+        "cis_aws": ["1.16"]
+      }
+    },
+    {
+      "id": "IAM-002",
+      "name": "Cross-Identity Access Key Creation",
+      "description": "Detects when a user creates access keys for a different user. This technique is used by attackers to create backdoor credentials that persist even if the original compromised user is disabled.",
+      "severity": "High",
+      "mitre_attack": {
+        "tactic": "Persistence",
+        "technique_id": "T1098.001",
+        "technique_name": "Account Manipulation: Additional Cloud Credentials"
+      },
+      "detection": {
+        "eventSource": "iam.amazonaws.com",
+        "eventName": ["CreateAccessKey"],
+        "conditions": [
+          "userIdentity.userName does NOT equal requestParameters.userName"
+        ]
+      },
+      "cloudwatch_filter_pattern": "{ ($.eventSource = \"iam.amazonaws.com\") && ($.eventName = \"CreateAccessKey\") && ($.userIdentity.userName != $.requestParameters.userName) }",
+      "eventbridge_pattern": {
+        "source": ["aws.cloudtrail"],
+        "detail-type": ["AWS API Call via CloudTrail"],
+        "detail": {
+          "eventSource": ["iam.amazonaws.com"],
+          "eventName": ["CreateAccessKey"]
+        }
+      },
+      "false_positives": [
+        "IAM administrators creating keys for new users during onboarding",
+        "Automated key rotation scripts running under service accounts",
+        "Break-glass procedures creating emergency access"
+      ],
+      "tuning_guidance": "Consider alerting only when the actor is not in an approved IAM admin group. Add user agent filtering to exclude known management tools.",
+      "response": [
+        "1. Identify both the actor and the target user",
+        "2. Verify if this was an authorized administrative action",
+        "3. If unauthorized: Immediately deactivate the newly created access key",
+        "4. Review CloudTrail for any API calls made using the new key",
+        "5. Investigate the actor's account for signs of compromise",
+        "6. Consider rotating all access keys for the target user"
+      ],
+      "compliance": {
+        "pci_dss": ["8.1", "8.2"],
+        "soc2": ["CC6.2"],
+        "hipaa": ["164.312(d)"],
+        "cis_aws": ["1.4"]
+      }
+    },
+    {
+      "id": "IAM-003",
+      "name": "Administrative Policy Attachment",
+      "description": "Detects when highly privileged AWS managed policies (AdministratorAccess, IAMFullAccess, PowerUserAccess) are attached to any principal. These policies grant extensive permissions that could enable full account compromise.",
+      "severity": "Critical",
+      "mitre_attack": {
+        "tactic": "Privilege Escalation",
+        "technique_id": "T1098.001",
+        "technique_name": "Account Manipulation: Additional Cloud Credentials"
+      },
+      "detection": {
+        "eventSource": "iam.amazonaws.com",
+        "eventName": ["AttachUserPolicy", "AttachRolePolicy", "AttachGroupPolicy"],
+        "conditions": [
+          "requestParameters.policyArn contains 'AdministratorAccess'",
+          "OR requestParameters.policyArn contains 'IAMFullAccess'",
+          "OR requestParameters.policyArn contains 'PowerUserAccess'"
+        ]
+      },
+      "cloudwatch_filter_pattern": "{ ($.eventSource = \"iam.amazonaws.com\") && (($.eventName = \"AttachUserPolicy\") || ($.eventName = \"AttachRolePolicy\") || ($.eventName = \"AttachGroupPolicy\")) && (($.requestParameters.policyArn = \"*AdministratorAccess*\") || ($.requestParameters.policyArn = \"*IAMFullAccess*\") || ($.requestParameters.policyArn = \"*PowerUserAccess*\")) }",
+      "eventbridge_pattern": {
+        "source": ["aws.cloudtrail"],
+        "detail-type": ["AWS API Call via CloudTrail"],
+        "detail": {
+          "eventSource": ["iam.amazonaws.com"],
+          "eventName": ["AttachUserPolicy", "AttachRolePolicy", "AttachGroupPolicy"]
+        }
+      },
+      "false_positives": [
+        "Initial account setup creating admin users",
+        "Terraform deploying infrastructure with admin roles",
+        "Emergency break-glass procedures"
+      ],
+      "tuning_guidance": "This rule should have very few false positives in mature environments. Consider requiring approval workflow for any admin policy attachments.",
+      "response": [
+        "1. Immediately identify the principal that received admin access",
+        "2. Verify this was an approved change through change management",
+        "3. If unauthorized: Detach the policy immediately",
+        "4. Review all actions taken by the principal after policy attachment",
+        "5. Investigate the actor who attached the policy",
+        "6. Consider implementing SCP to prevent admin policy attachment"
+      ],
+      "compliance": {
+        "pci_dss": ["7.1", "7.2"],
+        "soc2": ["CC6.1"],
+        "hipaa": ["164.312(a)(1)"],
+        "cis_aws": ["1.16"]
+      }
+    },
+    {
+      "id": "IAM-004",
+      "name": "Policy Version Escalation",
+      "description": "Detects when a new policy version is created and immediately set as default. Attackers with iam:CreatePolicyVersion permission can modify existing policies to grant themselves additional permissions, bypassing the need to attach new policies.",
+      "severity": "High",
+      "mitre_attack": {
+        "tactic": "Privilege Escalation",
+        "technique_id": "T1098.001",
+        "technique_name": "Account Manipulation: Additional Cloud Credentials"
+      },
+      "detection": {
+        "eventSource": "iam.amazonaws.com",
+        "eventName": ["CreatePolicyVersion"],
+        "conditions": [
+          "requestParameters.setAsDefault equals true"
+        ]
+      },
+      "cloudwatch_filter_pattern": "{ ($.eventSource = \"iam.amazonaws.com\") && ($.eventName = \"CreatePolicyVersion\") && ($.requestParameters.setAsDefault IS TRUE) }",
+      "eventbridge_pattern": {
+        "source": ["aws.cloudtrail"],
+        "detail-type": ["AWS API Call via CloudTrail"],
+        "detail": {
+          "eventSource": ["iam.amazonaws.com"],
+          "eventName": ["CreatePolicyVersion"],
+          "requestParameters": {
+            "setAsDefault": [true]
+          }
+        }
+      },
+      "false_positives": [
+        "Legitimate policy updates through Terraform or CloudFormation",
+        "Security team tightening policy permissions",
+        "Approved policy modifications during change windows"
+      ],
+      "tuning_guidance": "Review the policy document diff between versions. Alert on policies that add Action:* or Resource:* wildcards.",
+      "response": [
+        "1. Retrieve the policy document for the new version",
+        "2. Compare with the previous version to identify permission changes",
+        "3. If permissions were expanded without approval: Revert to previous version",
+        "4. Identify all principals attached to this policy",
+        "5. Investigate the actor's other recent activities",
+        "6. Review if the actor should have iam:CreatePolicyVersion permission"
+      ],
+      "compliance": {
+        "pci_dss": ["7.1"],
+        "soc2": ["CC6.1"],
+        "hipaa": ["164.312(a)(1)"],
+        "cis_aws": ["1.16"]
+      }
+    },
+    {
+      "id": "IAM-005",
+      "name": "Console Access Created for User",
+      "description": "Detects when console login access is enabled for an IAM user. This could indicate an attacker creating persistent access to the AWS console, or backdoor user creation.",
+      "severity": "Medium",
+      "mitre_attack": {
+        "tactic": "Persistence",
+        "technique_id": "T1136.003",
+        "technique_name": "Create Account: Cloud Account"
+      },
+      "detection": {
+        "eventSource": "iam.amazonaws.com",
+        "eventName": ["CreateLoginProfile"],
+        "conditions": []
+      },
+      "cloudwatch_filter_pattern": "{ ($.eventSource = \"iam.amazonaws.com\") && ($.eventName = \"CreateLoginProfile\") }",
+      "eventbridge_pattern": {
+        "source": ["aws.cloudtrail"],
+        "detail-type": ["AWS API Call via CloudTrail"],
+        "detail": {
+          "eventSource": ["iam.amazonaws.com"],
+          "eventName": ["CreateLoginProfile"]
+        }
+      },
+      "false_positives": [
+        "New user onboarding by HR/IT",
+        "Service account being converted to human user",
+        "Password reset processes"
+      ],
+      "tuning_guidance": "Correlate with CreateUser events. Alert on CreateLoginProfile without a preceding approved CreateUser in the same session.",
+      "response": [
+        "1. Identify the user receiving console access",
+        "2. Verify this aligns with user onboarding records",
+        "3. If unexpected: Disable the login profile immediately",
+        "4. Check if the user already existed or was newly created",
+        "5. Review permissions assigned to this user",
+        "6. Ensure MFA is required for the new console user"
+      ],
+      "compliance": {
+        "pci_dss": ["8.1", "8.2"],
+        "soc2": ["CC6.2"],
+        "hipaa": ["164.312(d)"],
+        "cis_aws": ["1.10"]
+      }
+    }
+  ]
+}

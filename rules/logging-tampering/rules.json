@@ -1,0 +1,184 @@
+{
+  "rules": [
+    {
+      "id": "LOG-001",
+      "name": "CloudTrail Logging Stopped",
+      "description": "Detects when CloudTrail logging is stopped. This is one of the first actions an attacker takes after gaining access—disabling logging prevents detection of subsequent malicious activity. Any StopLogging event outside of planned maintenance is a critical security incident.",
+      "severity": "Critical",
+      "mitre_attack": {
+        "tactic": "Defense Evasion",
+        "technique_id": "T1562.008",
+        "technique_name": "Impair Defenses: Disable Cloud Logs"
+      },
+      "detection": {
+        "eventSource": "cloudtrail.amazonaws.com",
+        "eventName": ["StopLogging"],
+        "conditions": []
+      },
+      "cloudwatch_filter_pattern": "{ ($.eventSource = \"cloudtrail.amazonaws.com\") && ($.eventName = \"StopLogging\") }",
+      "eventbridge_pattern": {
+        "source": ["aws.cloudtrail"],
+        "detail-type": ["AWS API Call via CloudTrail"],
+        "detail": {
+          "eventSource": ["cloudtrail.amazonaws.com"],
+          "eventName": ["StopLogging"]
+        }
+      },
+      "false_positives": [
+        "Planned CloudTrail maintenance (extremely rare)",
+        "Trail reconfiguration requiring stop/start"
+      ],
+      "tuning_guidance": "No tuning recommended. This alert should fire in all cases and requires immediate investigation. Even planned maintenance should generate an alert that is then documented as expected.",
+      "response": [
+        "1. Immediately restart logging using StartLogging",
+        "2. This is a CRITICAL incident—assume compromise until proven otherwise",
+        "3. Identify the actor and source IP from this final logged event",
+        "4. Review all actions by this actor prior to StopLogging",
+        "5. Check for evidence of the attack continuing in other log sources",
+        "6. Consider isolating potentially compromised resources",
+        "7. Engage incident response team immediately"
+      ],
+      "compliance": {
+        "pci_dss": ["10.2", "10.3"],
+        "soc2": ["CC7.2"],
+        "hipaa": ["164.312(b)"],
+        "cis_aws": ["3.1"]
+      }
+    },
+    {
+      "id": "LOG-002",
+      "name": "CloudTrail Trail Deleted",
+      "description": "Detects when a CloudTrail trail is deleted. Trail deletion destroys the logging configuration and is a strong indicator of an attacker attempting to cover their tracks.",
+      "severity": "Critical",
+      "mitre_attack": {
+        "tactic": "Defense Evasion",
+        "technique_id": "T1562.008",
+        "technique_name": "Impair Defenses: Disable Cloud Logs"
+      },
+      "detection": {
+        "eventSource": "cloudtrail.amazonaws.com",
+        "eventName": ["DeleteTrail"],
+        "conditions": []
+      },
+      "cloudwatch_filter_pattern": "{ ($.eventSource = \"cloudtrail.amazonaws.com\") && ($.eventName = \"DeleteTrail\") }",
+      "eventbridge_pattern": {
+        "source": ["aws.cloudtrail"],
+        "detail-type": ["AWS API Call via CloudTrail"],
+        "detail": {
+          "eventSource": ["cloudtrail.amazonaws.com"],
+          "eventName": ["DeleteTrail"]
+        }
+      },
+      "false_positives": [
+        "Account decommissioning",
+        "Trail consolidation during AWS Organizations setup",
+        "Terraform destroy operations"
+      ],
+      "tuning_guidance": "All trail deletions should alert. Cross-reference with change management before dismissing as false positive.",
+      "response": [
+        "1. Immediately recreate the trail or enable organization trail",
+        "2. Treat as confirmed security incident pending investigation",
+        "3. Identify the actor and investigate their access",
+        "4. Check S3 bucket for existing logs (may not have been deleted)",
+        "5. Review all activity by this actor before deletion",
+        "6. Implement SCP to prevent CloudTrail deletion"
+      ],
+      "compliance": {
+        "pci_dss": ["10.2", "10.3"],
+        "soc2": ["CC7.2"],
+        "hipaa": ["164.312(b)"],
+        "cis_aws": ["3.1"]
+      }
+    },
+    {
+      "id": "LOG-003",
+      "name": "CloudTrail Configuration Changed",
+      "description": "Detects when a CloudTrail trail configuration is modified. Changes might include disabling log file validation, changing the S3 bucket, or disabling multi-region logging—all of which could weaken security visibility.",
+      "severity": "High",
+      "mitre_attack": {
+        "tactic": "Defense Evasion",
+        "technique_id": "T1562.008",
+        "technique_name": "Impair Defenses: Disable Cloud Logs"
+      },
+      "detection": {
+        "eventSource": "cloudtrail.amazonaws.com",
+        "eventName": ["UpdateTrail"],
+        "conditions": []
+      },
+      "cloudwatch_filter_pattern": "{ ($.eventSource = \"cloudtrail.amazonaws.com\") && ($.eventName = \"UpdateTrail\") }",
+      "eventbridge_pattern": {
+        "source": ["aws.cloudtrail"],
+        "detail-type": ["AWS API Call via CloudTrail"],
+        "detail": {
+          "eventSource": ["cloudtrail.amazonaws.com"],
+          "eventName": ["UpdateTrail"]
+        }
+      },
+      "false_positives": [
+        "Legitimate configuration updates (adding data events, changing bucket)",
+        "Terraform apply updating trail configuration",
+        "Security team enabling additional logging features"
+      ],
+      "tuning_guidance": "Alert on all changes but review the specific modifications. Higher severity if: log file validation disabled, multi-region disabled, or S3 bucket changed to unknown bucket.",
+      "response": [
+        "1. Review the specific configuration changes made",
+        "2. Verify changes align with approved change requests",
+        "3. If log validation was disabled: Re-enable immediately",
+        "4. If S3 bucket was changed: Verify the new bucket is secure and owned by your organization",
+        "5. If multi-region was disabled: Assess coverage gap and re-enable",
+        "6. Investigate the actor if changes were unexpected"
+      ],
+      "compliance": {
+        "pci_dss": ["10.2", "10.5"],
+        "soc2": ["CC7.2"],
+        "hipaa": ["164.312(b)"],
+        "cis_aws": ["3.2"]
+      }
+    },
+    {
+      "id": "LOG-004",
+      "name": "GuardDuty Detector Deleted",
+      "description": "Detects when GuardDuty threat detection is disabled by deleting the detector. GuardDuty provides automated threat detection, and disabling it removes a critical layer of security monitoring.",
+      "severity": "Critical",
+      "mitre_attack": {
+        "tactic": "Defense Evasion",
+        "technique_id": "T1562.008",
+        "technique_name": "Impair Defenses: Disable Cloud Logs"
+      },
+      "detection": {
+        "eventSource": "guardduty.amazonaws.com",
+        "eventName": ["DeleteDetector"],
+        "conditions": []
+      },
+      "cloudwatch_filter_pattern": "{ ($.eventSource = \"guardduty.amazonaws.com\") && ($.eventName = \"DeleteDetector\") }",
+      "eventbridge_pattern": {
+        "source": ["aws.cloudtrail"],
+        "detail-type": ["AWS API Call via CloudTrail"],
+        "detail": {
+          "eventSource": ["guardduty.amazonaws.com"],
+          "eventName": ["DeleteDetector"]
+        }
+      },
+      "false_positives": [
+        "Account decommissioning",
+        "Consolidating to organization-managed GuardDuty",
+        "Cost optimization in non-production accounts (not recommended)"
+      ],
+      "tuning_guidance": "GuardDuty deletion should always alert. Even in non-production, this removes threat detection capability.",
+      "response": [
+        "1. Immediately re-enable GuardDuty",
+        "2. Check for any suppressed findings before deletion",
+        "3. Investigate the actor who deleted the detector",
+        "4. Review CloudTrail for other defense evasion activities",
+        "5. Check for active threats that may have triggered the deletion",
+        "6. Implement SCP to prevent GuardDuty deletion"
+      ],
+      "compliance": {
+        "pci_dss": ["10.6"],
+        "soc2": ["CC7.2"],
+        "hipaa": ["164.312(b)"],
+        "cis_aws": ["4.15"]
+      }
+    }
+  ]
+}

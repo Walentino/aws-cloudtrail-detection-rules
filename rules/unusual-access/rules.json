@@ -1,0 +1,250 @@
+{
+  "rules": [
+    {
+      "id": "ACCESS-001",
+      "name": "Root Account API Activity",
+      "description": "Detects when the root account makes API calls other than console login. Root account usage should be extremely rare and limited to specific administrative tasks that cannot be performed by IAM users.",
+      "severity": "High",
+      "mitre_attack": {
+        "tactic": "Privilege Escalation",
+        "technique_id": "T1078.004",
+        "technique_name": "Valid Accounts: Cloud Accounts"
+      },
+      "detection": {
+        "eventSource": "any",
+        "eventName": "any except ConsoleLogin",
+        "conditions": [
+          "userIdentity.type equals 'Root'"
+        ]
+      },
+      "cloudwatch_filter_pattern": "{ ($.userIdentity.type = \"Root\") && ($.eventName != \"ConsoleLogin\") }",
+      "eventbridge_pattern": {
+        "source": ["aws.cloudtrail"],
+        "detail-type": ["AWS API Call via CloudTrail"],
+        "detail": {
+          "userIdentity": {
+            "type": ["Root"]
+          }
+        }
+      },
+      "false_positives": [
+        "Legitimate root account usage for tasks requiring root (e.g., closing account)",
+        "Initial account setup before IAM users exist",
+        "Break-glass emergency procedures"
+      ],
+      "tuning_guidance": "Root account usage should trigger investigation in all cases. Document approved root usage procedures and verify all alerts against this documentation.",
+      "response": [
+        "1. Immediately identify the action performed and source IP",
+        "2. Verify against approved root account usage procedures",
+        "3. If unauthorized: Change root account password and MFA immediately",
+        "4. Review all root account activity in the time window",
+        "5. Check for any IAM changes or persistence mechanisms created",
+        "6. Enable root account activity alerts if not already configured"
+      ],
+      "compliance": {
+        "pci_dss": ["8.1"],
+        "soc2": ["CC6.1"],
+        "hipaa": ["164.312(a)(1)"],
+        "cis_aws": ["1.7"]
+      }
+    },
+    {
+      "id": "ACCESS-002",
+      "name": "Console Login Without MFA",
+      "description": "Detects successful console logins where MFA was not used. This could indicate a compromised account where the attacker has the password but not the MFA device, or accounts that haven't been properly configured with MFA.",
+      "severity": "High",
+      "mitre_attack": {
+        "tactic": "Initial Access",
+        "technique_id": "T1078.004",
+        "technique_name": "Valid Accounts: Cloud Accounts"
+      },
+      "detection": {
+        "eventSource": "signin.amazonaws.com",
+        "eventName": ["ConsoleLogin"],
+        "conditions": [
+          "additionalEventData.MFAUsed equals 'No'",
+          "responseElements.ConsoleLogin equals 'Success'"
+        ]
+      },
+      "cloudwatch_filter_pattern": "{ ($.eventSource = \"signin.amazonaws.com\") && ($.eventName = \"ConsoleLogin\") && ($.additionalEventData.MFAUsed = \"No\") && ($.responseElements.ConsoleLogin = \"Success\") }",
+      "eventbridge_pattern": {
+        "source": ["aws.signin"],
+        "detail-type": ["AWS Console Sign In via CloudTrail"],
+        "detail": {
+          "eventName": ["ConsoleLogin"],
+          "additionalEventData": {
+            "MFAUsed": ["No"]
+          },
+          "responseElements": {
+            "ConsoleLogin": ["Success"]
+          }
+        }
+      },
+      "false_positives": [
+        "Accounts in the process of MFA enrollment",
+        "Legacy accounts that predate MFA requirements",
+        "Federated access that handles MFA at the IdP level"
+      ],
+      "tuning_guidance": "Exclude federated users (userIdentity.type = 'FederatedUser') if your organization uses SAML/SSO with MFA enforced at the identity provider.",
+      "response": [
+        "1. Identify the user and verify if they should have console access",
+        "2. Contact the user to verify the login was legitimate",
+        "3. If unexpected: Force logout and disable console access",
+        "4. Check if MFA was recently disabled for this user",
+        "5. Enforce MFA enrollment immediately",
+        "6. Review account activity since the non-MFA login"
+      ],
+      "compliance": {
+        "pci_dss": ["8.3"],
+        "soc2": ["CC6.1"],
+        "hipaa": ["164.312(d)"],
+        "cis_aws": ["1.10"]
+      }
+    },
+    {
+      "id": "ACCESS-003",
+      "name": "Root Console Login",
+      "description": "Detects any console login by the root account. Root console access should be extremely rare and requires immediate attention regardless of whether it was authorized.",
+      "severity": "High",
+      "mitre_attack": {
+        "tactic": "Initial Access",
+        "technique_id": "T1078.004",
+        "technique_name": "Valid Accounts: Cloud Accounts"
+      },
+      "detection": {
+        "eventSource": "signin.amazonaws.com",
+        "eventName": ["ConsoleLogin"],
+        "conditions": [
+          "userIdentity.type equals 'Root'"
+        ]
+      },
+      "cloudwatch_filter_pattern": "{ ($.eventSource = \"signin.amazonaws.com\") && ($.eventName = \"ConsoleLogin\") && ($.userIdentity.type = \"Root\") }",
+      "eventbridge_pattern": {
+        "source": ["aws.signin"],
+        "detail-type": ["AWS Console Sign In via CloudTrail"],
+        "detail": {
+          "eventName": ["ConsoleLogin"],
+          "userIdentity": {
+            "type": ["Root"]
+          }
+        }
+      },
+      "false_positives": [
+        "Authorized root account access for account-level changes",
+        "Initial account setup",
+        "Documented break-glass procedures"
+      ],
+      "tuning_guidance": "This rule should always alert. No tuning to reduce alerts is recommended. Instead, reduce root account usage.",
+      "response": [
+        "1. Immediately verify if this was an authorized root login",
+        "2. Identify the source IP and geographic location",
+        "3. If unauthorized: Change root password and MFA immediately",
+        "4. Review all actions taken during the root session",
+        "5. Check for any new IAM users, roles, or access keys created",
+        "6. Consider enabling root account hardware MFA key"
+      ],
+      "compliance": {
+        "pci_dss": ["8.1"],
+        "soc2": ["CC6.1"],
+        "hipaa": ["164.312(a)(1)"],
+        "cis_aws": ["1.7"]
+      }
+    },
+    {
+      "id": "ACCESS-004",
+      "name": "Multiple Failed Console Login Attempts",
+      "description": "Detects multiple failed console login attempts which may indicate a brute force attack or credential stuffing attempt against AWS accounts.",
+      "severity": "High",
+      "mitre_attack": {
+        "tactic": "Credential Access",
+        "technique_id": "T1110.001",
+        "technique_name": "Brute Force: Password Guessing"
+      },
+      "detection": {
+        "eventSource": "signin.amazonaws.com",
+        "eventName": ["ConsoleLogin"],
+        "conditions": [
+          "responseElements.ConsoleLogin equals 'Failure'",
+          "Count > 5 within 10 minutes from same sourceIPAddress or userName"
+        ]
+      },
+      "cloudwatch_filter_pattern": "{ ($.eventSource = \"signin.amazonaws.com\") && ($.eventName = \"ConsoleLogin\") && ($.responseElements.ConsoleLogin = \"Failure\") }",
+      "eventbridge_pattern": {
+        "source": ["aws.signin"],
+        "detail-type": ["AWS Console Sign In via CloudTrail"],
+        "detail": {
+          "eventName": ["ConsoleLogin"],
+          "responseElements": {
+            "ConsoleLogin": ["Failure"]
+          }
+        }
+      },
+      "false_positives": [
+        "Users who forgot their password",
+        "Password manager sync issues",
+        "Automated testing of login functionality"
+      ],
+      "tuning_guidance": "Set CloudWatch alarm threshold to trigger on >5 failures in 10 minutes. Consider separate alarms for individual users vs source IPs.",
+      "response": [
+        "1. Identify the target username and source IP(s)",
+        "2. Check if the IP is from a known corporate range",
+        "3. If external and targeting multiple accounts: Block IP at WAF/security group",
+        "4. Contact the target user to verify if they were attempting to log in",
+        "5. Consider temporarily disabling console access for targeted accounts",
+        "6. Monitor for successful login following failed attempts"
+      ],
+      "compliance": {
+        "pci_dss": ["8.1.6"],
+        "soc2": ["CC6.1"],
+        "hipaa": ["164.312(a)(1)"],
+        "cis_aws": ["1.10"]
+      }
+    },
+    {
+      "id": "ACCESS-005",
+      "name": "Unauthorized API Calls (Access Denied)",
+      "description": "Detects API calls that result in access denied errors. Excessive access denied errors may indicate reconnaissance activity, misconfigured applications, or an attacker testing permissions after gaining initial access.",
+      "severity": "Medium",
+      "mitre_attack": {
+        "tactic": "Discovery",
+        "technique_id": "T1580",
+        "technique_name": "Cloud Infrastructure Discovery"
+      },
+      "detection": {
+        "eventSource": "any",
+        "eventName": "any",
+        "conditions": [
+          "errorCode equals 'UnauthorizedAccess' OR 'AccessDenied' OR 'AccessDeniedException'"
+        ]
+      },
+      "cloudwatch_filter_pattern": "{ ($.errorCode = \"*UnauthorizedAccess*\") || ($.errorCode = \"AccessDenied*\") || ($.errorCode = \"*AccessDeniedException*\") }",
+      "eventbridge_pattern": {
+        "source": ["aws.cloudtrail"],
+        "detail-type": ["AWS API Call via CloudTrail"],
+        "detail": {
+          "errorCode": ["UnauthorizedAccess", "AccessDenied", "AccessDeniedException", "Client.UnauthorizedAccess"]
+        }
+      },
+      "false_positives": [
+        "Applications with overly broad API calls that get partially denied",
+        "New users learning the environment",
+        "Misconfigured service accounts"
+      ],
+      "tuning_guidance": "Set threshold for >10 access denied errors from same principal in 5 minutes. Exclude known noisy services or applications after review.",
+      "response": [
+        "1. Identify the principal and the actions being denied",
+        "2. Determine if this is a misconfigured application or potential attack",
+        "3. If reconnaissance suspected: Review all activity from this principal",
+        "4. If misconfiguration: Work with application team to fix permissions",
+        "5. Look for successful calls interspersed with denied calls (permission enumeration)",
+        "6. Check if the principal recently had permissions removed"
+      ],
+      "compliance": {
+        "pci_dss": ["10.2.4"],
+        "soc2": ["CC6.8"],
+        "hipaa": ["164.312(b)"],
+        "cis_aws": ["3.1"]
+      }
+    }
+  ]
+}
