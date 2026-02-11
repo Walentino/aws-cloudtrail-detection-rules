@@ -322,7 +322,7 @@ Cloud Security Engineer | AWS Threat Detection & Automation | ACRTP Certified
 
 - LinkedIn: [linkedin.com/in/adewaleodeja](https://linkedin.com/in/adewaleodeja)
 - GitHub: [github.com/Walentino](https://github.com/Walentino)
-- Portfolio: [https://walentino.github.io/signalroot]
+- Portfolio: [walentino.github.io/signalroot](https://walentino.github.io/signalroot.github.io/)
 
 ---
 
