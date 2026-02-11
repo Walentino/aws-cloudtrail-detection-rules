@@ -23,7 +23,7 @@ All notable changes to this project will be documented in this file.
 - Added SignalRoot portfolio link to Author section
 - Detection Coverage table now links to deep-dive docs for IAM, Logging, and Exfiltration categories
 
-## [1.0.0] — 2025-xx-xx
+## [1.0.0] — 2025-02-11
 
 ### Added
 - Initial release: 25 detection rules across 6 categories
